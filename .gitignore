@@ -1,0 +1,64 @@
+# .gitignore
+
+# Ignore Python build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Ignore Python distribution artifacts
+dist/
+build/
+*.egg
+*.egg-info/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+*.egg
+
+# Ignore Jupyter Notebook artifacts
+.ipynb_checkpoints
+
+# Ignore PyCharm artifacts
+.idea/
+
+# Ignore VS Code artifacts
+.vscode/
+
+# Ignore environment variables file
+.env
+
+# Ignore configuration file
+config.ini
+
+# Ignore data files
+*.csv
+*.json
+*.txt
+
+# Ignore log files
+*.log
+
+# Ignore database files
+*.db
+*.sqlite
+
+# Ignore virtual environment
+venv/
+
+# Ignore Mac system files
+.DS_Store
+._*
+
+# Ignore Mac-specific files
+*.swp
+*.lock
+Profile
+*.mo
+*.bak
+*.orig
