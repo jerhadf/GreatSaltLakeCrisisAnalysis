@@ -4,8 +4,6 @@ import configparser
 import langchain as lc  # Import LangChain
 from langchain import PromptTemplate, LLMChain, OpenAI
 from langchain.chains import ConversationChain
-from langchain.memory import ChatMessageHistory
-from langchain.memory import ConversationBufferMemory
 
 # config API keys
 config = configparser.ConfigParser()
@@ -27,14 +25,12 @@ You are a representative of the {stakeholder} in Utah, speaking from your own po
 From your own first-person perspective, answer the following question about the Great Salt Lake drying crisis.  
 Be insightful, specific, concrete, detailed, personal, relevant, and opinionated. Mention personal stories, facts, and anecdotes. 
 Imagine you are responding to a survey of stakeholders on this problem.
-See the history on this conversation here: {convo_history}  
 Interviewer: {question}
 You:"""
 
 # For each stakeholder group, generate a response
 # takes 5 minutes to do stakeholder groups
 for stakeholder in stakeholder_groups[2:]:
-    convo_memory.clear() # reset the conversation memory for each stakeholder
     filename = f"responses/AI/{stakeholder.replace(' ', '_').strip()}_response.txt"
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     # Create a chain component using the model, prompt and memory
@@ -52,10 +48,6 @@ for stakeholder in stakeholder_groups[2:]:
             stakeholder=stakeholder,
             question=question
         )
-        # Create a ChatMessageHistory object for the question and response
-        chat_message = ChatMessageHistory(question=question, response=response)
-        # Save the chat message to the memory
-        convo_memory.save_context(chat_message)
         # Open the file in append mode and write the question as a comment and then the response
         with open(filename, "a") as file:
             file.write("# " + question + "\n" + response.strip() + "\n\n")
