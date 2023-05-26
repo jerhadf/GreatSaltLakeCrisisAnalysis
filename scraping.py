@@ -1,20 +1,18 @@
 ################################################# SETUP #################################################
 
 # Import libraries
-import spacy
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
-import PyPDF2
-from io import BytesIO
-from wordcloud import WordCloud
-import matplotlib.pyplot as plt
+# import PyPDF2
+# from io import BytesIO
 import openai
 import os
 from urllib.parse import urlparse
 from requests.exceptions import RequestException
 import configparser
 import json
+from requests_html import HTMLSession
 
 # config API keys
 config = configparser.ConfigParser()
@@ -102,31 +100,31 @@ def get_author(soup):
     # If all else fails, return "Unknown"
     return "Unknown"
 
-def read_pdf_from_url(url):
-    """
-    Read a PDF from a URL and return its content as a string.
+# def read_pdf_from_url(url):
+#     """
+#     Read a PDF from a URL and return its content as a string.
 
-    Parameters:
-    url (str): The URL of the PDF.
+#     Parameters:
+#     url (str): The URL of the PDF.
 
-    Returns:
-    str: The content of the PDF.
-    """
-    try:
-        response = requests.get(url)
-        response.raise_for_status()  # Raise an exception if the response status is not 200 (OK)
-    except requests.RequestException as e:
-        print(f"Failed to fetch {url} due to error: {e}")
-        return None  # Return None if the request failed
+#     Returns:
+#     str: The content of the PDF.
+#     """
+#     try:
+#         response = requests.get(url)
+#         response.raise_for_status()  # Raise an exception if the response status is not 200 (OK)
+#     except requests.RequestException as e:
+#         print(f"Failed to fetch {url} due to error: {e}")
+#         return None  # Return None if the request failed
 
-    # Open the PDF
-    with BytesIO(response.content) as open_pdf_file:
-        read_pdf = PyPDF2.PdfFileReader(open_pdf_file)
-        text = ""
-        for page in range(read_pdf.getNumPages()):
-            text += read_pdf.getPage(page).extractText()
+#     # Open the PDF
+#     with BytesIO(response.content) as open_pdf_file:
+#         read_pdf = PyPDF2.PdfFileReader(open_pdf_file)
+#         text = ""
+#         for page in range(read_pdf.getNumPages()):
+#             text += read_pdf.getPage(page).extractText()
 
-    return text
+#     return text
 
 # MAIN SCRAPING FUNCTION
 def scrape_content(df, json_filepath):
@@ -147,46 +145,53 @@ def scrape_content(df, json_filepath):
     # Scrape content from URLs
     for source, urls in data.items():
         for url in urls:
-            # skip research articles for now 
-            if source == "research":
-                continue
+            # # skip research articles for now 
+            # if source == "research":
+            #     continue
             
             # Skip if the URL is not valid
             if not url or not urlparse(url).scheme:
                 continue
             
-            # Check if the URL is a link to a PDF
-            if url.lower().endswith('.pdf'):
-                content = read_pdf_from_url(url)
-                author = None  # We can't get the author from a PDF
-            else: # Otherwise, assume it's a link to an HTML web page
-                try:
-                    headers = { # add headers to trick the browser
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
-                            }
-                    response = requests.get(url, headers=headers)
-                    response.raise_for_status()  # Raise an exception if the response status is not 200 (OK)
-                except requests.RequestException as e:
-                    print(f"Failed to fetch {url} due to error: {e}")
-                    continue  # Skip to the next URL
+            # # Check if the URL is a link to a PDF
+            # if url.lower().endswith('.pdf'):
+            #     content = read_pdf_from_url(url)
+            #     author = None  # We can't get the author from a PDF=
+            # Otherwise, assume it's a link to an HTML web page
+            try:
+                headers = { # add headers to trick the browser
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+                        }
+                response = requests.get(url, headers=headers)
+                response.raise_for_status()  # Raise an exception if the response status is not 200 (OK)
+            except requests.RequestException as e:
+                print(f"Failed to fetch {url} due to error: {e}")
+                continue  # Skip to the next URL
 
-                soup = BeautifulSoup(response.text, 'html.parser')
+            soup = BeautifulSoup(response.text, 'html.parser')
 
-                # Get the author
-                author = get_author(soup)
+            # Get the author
+            author = get_author(soup)
 
             # Get the content
             # Find all tags that contain relevant content
             tags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']
-            content = "\n".join([p.get_text() for p in soup.find_all(tags)])
+            content = "\n".join([i.get_text() for i in soup.find_all(tags)])
             
             # If the source is Reddit, also scrape comments from the old Reddit layout
             if "reddit" in url:
+                # Use requests-html instead of requests and BeautifulSoup
+                # This allows you to render JavaScript on the page and access dynamic content
+                # See https://requests-html.kennethreitz.org/ for details
+                session = HTMLSession()
                 old_reddit_url = url.replace("https://www.reddit.com", "https://old.reddit.com")
-                response = requests.get(old_reddit_url, headers=headers)
-                soup = BeautifulSoup(response.text, 'html.parser')
-                comments = soup.find_all('div', class_='usertext-body')
-                content += "\n\n".join([comment.get_text() for comment in comments])
+                response = session.get(old_reddit_url)
+                # Render the page for 5 seconds to load the comments
+                response.html.render(sleep=5)
+                # Find all the comment elements by their CSS selector
+                comments = response.html.find('.usertext-body')
+                content += "\n\n".join([comment.text for comment in comments])
+                content += "\n".join([i.get_text() for i in soup.find_all('div')]) # add div tags as well
                 
             # Check if content is empty
             if not content.strip():
@@ -241,7 +246,6 @@ responses_df.to_csv(output_filepath, index=False)
 import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
-import string
 
 # Download the stopwords from NLTK
 nltk.download('punkt')
@@ -277,39 +281,25 @@ def clean_text_file(row):
     # Finalize the text content 
     text = ' '.join(words)
 
-    # Save the cleaned text to the DataFrame
-    responses_df.at[index, 'content'] = text
-    
     # Count the frequency of each word
     word_freq = nltk.FreqDist(words)
 
     # Get the top 5 most frequent words
     top_keywords = [word for word, freq in word_freq.most_common(5)]
 
-    # Save the keywords to the DataFrame
-    responses_df.at[index, 'keywords'] = top_keywords
+    return (text, top_keywords)
 
+responses_df[['content', 'keywords']] = responses_df.apply(clean_text_file, 
+                                                           axis=1, result_type='expand')
 
-
-
-# ################################################# DATA ANALYSIS ################################################# 
-
+responses_df.to_csv("data/cleaned_responses.csv", index=False)
 
 
 # ################################################# AI STUFF ################################################# 
+
 
 # response = openai.Completion.create(
 #   engine="text-davinci-002",
 #   prompt="Translate the following English text to French: '{}'",
 #   max_tokens=60
 # )
-
-# ################################################# DATA VISUALIZATION ################################################# 
-
-# # Create a word map
-# text = " ".join(df["keywords"])
-# wordcloud = WordCloud().generate(text)
-
-# plt.imshow(wordcloud, interpolation='bilinear')
-# plt.axis("off")
-# plt.show()

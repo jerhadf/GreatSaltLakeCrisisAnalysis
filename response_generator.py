@@ -30,11 +30,11 @@ You:"""
 
 # For each stakeholder group, generate a response
 # takes 5 minutes to do stakeholder groups
-for stakeholder in stakeholder_groups[2:]:
+for stakeholder in stakeholder_groups[24:]:
     filename = f"responses/AI/{stakeholder.replace(' ', '_').strip()}_response.txt"
     os.makedirs(os.path.dirname(filename), exist_ok=True)
-    # Create a chain component using the model, prompt and memory
-    conversation_chain = ConversationChain(
+    # Create a chain component using the model
+    conversation_chain = LLMChain(
         llm=OpenAI(temperature=0.5, openai_api_key=openai_key, max_tokens=500),
         prompt=PromptTemplate.from_template(template),
         verbose=True
