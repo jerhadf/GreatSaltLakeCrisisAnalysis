@@ -5,7 +5,7 @@ source = None
 data = {}
 
 # Read the links.txt file
-with open("links.txt", "r") as file:
+with open("data/links.txt", "r") as file:
     for line in file:
         line = line.strip()  # Remove newline characters
         if line.startswith('# '):
@@ -15,5 +15,5 @@ with open("links.txt", "r") as file:
             data[source].append(line)  # Add the URL to the current source
 
 # Write the data to a JSON file
-with open("links.json", "w") as file:
+with open("data/links.json", "w") as file:
     json.dump(data, file)

@@ -19,8 +19,9 @@ urls = [
 ]
 
 # Read the existing URLs from the file
+links_fp = "data/links.txt"
 try:
-    with open("links.txt", "r") as file:
+    with open(links_fp, "r") as file:
         existing_urls = file.read().splitlines()
 except FileNotFoundError:
     existing_urls = []
@@ -29,7 +30,7 @@ except FileNotFoundError:
 all_urls = list(set(existing_urls + urls))
 
 # Write the URLs back to the file
-with open("links.txt", "w") as file:
+with open(links_fp, "w") as file:
     for url in all_urls:
         # Ignore lines starting with '#'
         if not url.startswith('#'):
