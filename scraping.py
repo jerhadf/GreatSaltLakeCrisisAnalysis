@@ -5,6 +5,8 @@ import spacy
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
+import PyPDF2
+from io import BytesIO
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 import openai
@@ -36,7 +38,8 @@ keywords_fp = "data/keywords.txt"
 """
 DataFrame Columns:
     - source: The origin of the response as a name/type (e.g., 'website', 'youtube', 'reddit', etc.).
-    - content: The filepath to the text content of the response. This is the main body of the response.
+    - filepath: The filepath to the text content of the response. This is the main body of the response.
+    - content: The text content of the response, cleaned up and ready for analysis. 
     - url: The URL or source link of the original response. This provides a reference to the original content.
     - author_names: A list of the authors involved in creating the response. This could be the username of a Reddit or Twitter user, the name of a YouTube channel, or the author of a news article or report.
     - value_types: A list of the major value types in the response. This represents the main themes or values that the response is promoting or discussing.
@@ -47,13 +50,14 @@ DataFrame Columns:
     - facts: A list of the facts, numbers, results, or takeaways in the response. This includes any specific data or factual information presented in the response, such as the cost of a proposed solution or the amount of water it could save.
 """
 
-responses_df = pd.DataFrame(columns=["source", "content", "url", "author_names",
+blank_df = pd.DataFrame(columns=["source", "filepath", "content", "url", "author_names",
                            "value_types", "stakeholder_types", "keywords",
                            "methods", "solutions", "facts"])
 
 ################################################# DATA COLLECTION #################################################
 # Scraping content from URLs in the .txt file
 
+# HELPER FUNCTIONS
 def get_source(url):
     """
     Function to extract base URL (source) from a URL.
@@ -98,6 +102,33 @@ def get_author(soup):
     # If all else fails, return "Unknown"
     return "Unknown"
 
+def read_pdf_from_url(url):
+    """
+    Read a PDF from a URL and return its content as a string.
+
+    Parameters:
+    url (str): The URL of the PDF.
+
+    Returns:
+    str: The content of the PDF.
+    """
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # Raise an exception if the response status is not 200 (OK)
+    except requests.RequestException as e:
+        print(f"Failed to fetch {url} due to error: {e}")
+        return None  # Return None if the request failed
+
+    # Open the PDF
+    with BytesIO(response.content) as open_pdf_file:
+        read_pdf = PyPDF2.PdfFileReader(open_pdf_file)
+        text = ""
+        for page in range(read_pdf.getNumPages()):
+            text += read_pdf.getPage(page).extractText()
+
+    return text
+
+# MAIN SCRAPING FUNCTION
 def scrape_content(df, json_filepath):
     """
     Scrape content from a list of URLs and save the content to .txt files.
@@ -116,23 +147,51 @@ def scrape_content(df, json_filepath):
     # Scrape content from URLs
     for source, urls in data.items():
         for url in urls:
-            try:
-                headers = { # add headers to trick the browser
-                           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
-                           }
-                response = requests.get(url, headers=headers)
-                response.raise_for_status()  # Raise an exception if the response status is not 200 (OK)
-            except requests.RequestException as e:
-                print(f"Failed to fetch {url} due to error: {e}")
-                continue  # Skip to the next URL
+            # skip research articles for now 
+            if source == "research":
+                continue
+            
+            # Skip if the URL is not valid
+            if not url or not urlparse(url).scheme:
+                continue
+            
+            # Check if the URL is a link to a PDF
+            if url.lower().endswith('.pdf'):
+                content = read_pdf_from_url(url)
+                author = None  # We can't get the author from a PDF
+            else: # Otherwise, assume it's a link to an HTML web page
+                try:
+                    headers = { # add headers to trick the browser
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+                            }
+                    response = requests.get(url, headers=headers)
+                    response.raise_for_status()  # Raise an exception if the response status is not 200 (OK)
+                except requests.RequestException as e:
+                    print(f"Failed to fetch {url} due to error: {e}")
+                    continue  # Skip to the next URL
 
-            soup = BeautifulSoup(response.text, 'html.parser')
+                soup = BeautifulSoup(response.text, 'html.parser')
 
-            # Get the author
-            author = get_author(soup)
+                # Get the author
+                author = get_author(soup)
 
             # Get the content
-            content = "\n".join([p.get_text() for p in soup.find_all('p')])
+            # Find all tags that contain relevant content
+            tags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']
+            content = "\n".join([p.get_text() for p in soup.find_all(tags)])
+            
+            # If the source is Reddit, also scrape comments from the old Reddit layout
+            if "reddit" in url:
+                old_reddit_url = url.replace("https://www.reddit.com", "https://old.reddit.com")
+                response = requests.get(old_reddit_url, headers=headers)
+                soup = BeautifulSoup(response.text, 'html.parser')
+                comments = soup.find_all('div', class_='usertext-body')
+                content += "\n\n".join([comment.get_text() for comment in comments])
+                
+            # Check if content is empty
+            if not content.strip():
+                print(f"Content empty - Scraping failed for {url}")
+                continue
 
             # Create a unique filename for each URL
             parsed_url = urlparse(url)
@@ -155,7 +214,7 @@ def scrape_content(df, json_filepath):
             try:
                 df = df.append({
                     "source": source,
-                    "content": filename,
+                    "filepath": filename,
                     "url": url,
                     "author_names": author,
                     # The rest of the columns will be filled in later
@@ -172,73 +231,70 @@ def scrape_content(df, json_filepath):
     return df
     
 # execute the function
-df = scrape_content(responses_df, links_json)
+responses_df = scrape_content(blank_df, links_json)
 
 # Save resulting DataFrame to a CSV file
 output_filepath = "data/responses.csv"
-df.to_csv(output_filepath, index=False)
+responses_df.to_csv(output_filepath, index=False)
 
-# # SCRAPING FROM OTHER SOURCES WITHOUT APIs 
-# url = "https://www.example.com" 
-# response = requests.get(url)
-# soup = BeautifulSoup(response.text, 'html.parser')
+# ################################################# DATA CLEANING #################################################
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+import string
 
-# # Find all paragraph tags and print their text
-# for p in soup.find_all('p'):
-#     print(p.get_text())
-#     # Add the text to the DataFrame
-    
-# # Function to clean text data
-# def clean_text(text):
-#     # Remove HTML tags
-#     soup = BeautifulSoup(text, "html.parser")
-#     text = soup.get_text()
-    
-#     # Remove stop words
-#     # You might want to use a library like NLTK for this
-    
-#     return text
+# Download the stopwords from NLTK
+nltk.download('punkt')
+nltk.download('stopwords')
 
-# # Collect and label data
-# for url in urls:
-#     # Use the VoxScript.GetWebsiteContent API to get the content of the URL
-#     # You'll need to replace "your_voxscript_api_key" with your actual VoxScript API key
-#     response = requests.get(f"https://api.voxscript.ai/GetWebsiteContent?api_key=your_voxscript_api_key&websiteURL={url}")
-#     content = response.json()["content"]
+def clean_text_file(row):
+    """
+    Function to clean text from a file removing stopwords and punctuation.
     
-#     # Clean the content
-#     content = clean_text(content)
+    Parameters:
+    row (pd.Series): DataFrame row.
     
-#     # Use the OpenAI API to label the content
-#     # You'll need to replace "your_openai_api_key" with your actual OpenAI API key
-#     response = openai.Completion.create(engine="text-davinci-002", prompt=content, max_tokens=60)
-#     labels = response.choices[0].text.strip().split("\n")
+    Returns:
+    str: Cleaned string of text.
+    """
+    # Read the text data from the file
+    with open(row['filepath'], 'r') as file:
+        text = file.read()
     
-#     # Add the labeled content to the DataFrame
-#     df = df.append({
-#         "source": "website",
-#         "url": url,
-#         "author_names": labels[0],
-#         "value_types": labels[1],
-#         "stakeholder_types": labels[2],
-#         "keywords": labels[3],
-#         "methods": labels[4],
-#         "solutions": labels[5],
-#         "facts": labels[6]
-#     }, ignore_index=True)
+    # Tokenize the text
+    tokens = word_tokenize(text)
     
+    # Convert to lower case
+    tokens = [word.lower() for word in tokens]
+    
+    # Remove punctuation and non-alphabetic tokens
+    words = [word for word in tokens if word.isalpha()]
+    
+    # Remove stopwords
+    stop_words = set(stopwords.words('english'))
+    words = [word for word in words if word not in stop_words]
+    
+    # Finalize the text content 
+    text = ' '.join(words)
 
-# ################################################# DATA CLEANING ################################################# 
+    # Save the cleaned text to the DataFrame
+    responses_df.at[index, 'content'] = text
     
-    
+    # Count the frequency of each word
+    word_freq = nltk.FreqDist(words)
+
+    # Get the top 5 most frequent words
+    top_keywords = [word for word, freq in word_freq.most_common(5)]
+
+    # Save the keywords to the DataFrame
+    responses_df.at[index, 'keywords'] = top_keywords
+
+
+
+
 # ################################################# DATA ANALYSIS ################################################# 
 
-# nlp = spacy.load("en_core_web_sm")
-# text = "The Great Salt Lake is drying up due to climate change."
-# doc = nlp(text)
 
-# for ent in doc.ents:
-#     print(ent.text, ent.label_)
 
 # ################################################# AI STUFF ################################################# 
 
@@ -257,5 +313,3 @@ df.to_csv(output_filepath, index=False)
 # plt.imshow(wordcloud, interpolation='bilinear')
 # plt.axis("off")
 # plt.show()
-
-    
