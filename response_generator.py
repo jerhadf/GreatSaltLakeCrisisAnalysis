@@ -1,7 +1,6 @@
 import openai
 import os
 import configparser
-import json
 import langchain as lc  # Import LangChain
 from langchain import PromptTemplate, LLMChain, OpenAI
 from langchain.memory import ConversationBufferMemory
@@ -30,34 +29,40 @@ Imagine you are contributing to an environmental stakeholder survey, with the hi
 Interviewer: {question}
 You:"""
 
-prompt = PromptTemplate(
-    input_variables=["stakeholder", "question"],
-    template=template
-)
+# prompt = PromptTemplate(
+#     input_variables=["stakeholder", "question", "chat_history"],
+#     template=template
+# )
 
 # For each stakeholder group, generate a response
-for stakeholder in stakeholder_groups:
+for stakeholder in stakeholder_groups[0:5]:
     filename = f"responses/{stakeholder.replace(' ', '_')}_response.txt"
     os.makedirs(os.path.dirname(filename), exist_ok=True)
-    # Create a memory component for this conversation 
-    memory = ConversationBufferMemory(memory_key="chat_history")
     # Create a chain component using the model, prompt and memory
     llm_chain = LLMChain(
-        llm=OpenAI(temperature=0), 
-        prompt=prompt, 
-        verbose=True, 
-        memory=memory,
+        llm=OpenAI(temperature=0.5, openai_api_key=openai_key, max_tokens=500), 
+        prompt=PromptTemplate.from_template(template),
+        verbose=True,
+        # Create a memory component for this conversation
+        memory=ConversationBufferMemory(memory_key="chat_history", 
+                                        input_key="input",
+                                        output_key='output', 
+                                        return_messages=True),
     )
     # loop through the questions and generate a response for each 
-    for question in questions:
-        # Set the input for the chain (the stakeholder and the question)
-    
-        # Also incorporate the memory into the chain
-
+    for question in questions[0:3]:
+        print(f"Generating response for {stakeholder} to question: {question}")
         # Get the output from the chain - with a limit of ~5 sentences (300 tokens)
-        response = llm_chain.predict(question=question, stakeholder=stakeholder, max_tokens=300)
-        # Add the response to the memory
-        memory.add(response)
+        response = llm_chain.predict(
+            # Set the input for the chain (the stakeholder and the question)
+            stakeholder=stakeholder, 
+            question=question,
+            chat_history=llm_chain.memory.load_memory_variables({})
+        )
+        
+        # Add the response to the memory as context 
+        llm_chain.memory.save_context({"question": question, "response": response})
+
         # Open the file in append mode and write the question as a comment and then the response
         with open(filename, "a") as file:
             file.write("# " + question + "\n" + response.strip() + "\n\n")
